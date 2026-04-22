@@ -33,18 +33,34 @@ def _get_client():
 
 
 def _embed_raw(texts: list[str]) -> np.ndarray:
-    """Call Voyage AI embed API in batches."""
+    """Call Voyage AI embed API in batches with rate limit handling."""
+    import time
     client = _get_client()
     all_vecs: list[list[float]] = []
-    # Batch in groups of 96 to stay safely under limits
-    batch_size = 96
+    # Voyage has strict rate limits, so we use a smaller batch size and delay
+    batch_size = 48
     for start in range(0, len(texts), batch_size):
         batch = texts[start : start + batch_size]
-        resp = client.embed(
-            texts=batch,
-            model=VOYAGE_EMBED_MODEL,
-        )
-        all_vecs.extend(resp.embeddings)
+        for attempt in range(5):
+            try:
+                resp = client.embed(
+                    batch,
+                    model=VOYAGE_EMBED_MODEL,
+                    input_type="document"
+                )
+                all_vecs.extend(resp.embeddings)
+                time.sleep(1)  # small delay to prevent rapid RPM/TPM spikes
+                break
+            except Exception as e:
+                # Catch rate limits (429) specifically
+                if "RateLimitError" in str(type(e)) or "429" in str(e):
+                    wait = 10 * (attempt + 1)
+                    print(f"Voyage rate limit hit, waiting {wait}s... (attempt {attempt+1})")
+                    time.sleep(wait)
+                else:
+                    raise
+        else:
+            raise RuntimeError("Voyage embedding failed after max retries due to rate limits.")
     arr = np.array(all_vecs, dtype=np.float32)
     # L2-normalize so dot product = cosine similarity
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
@@ -91,14 +107,28 @@ def cosine_topk(
         return [(int(i), float(sims[i])) for i in idx_k]
     
     # 2. Second pass (Reranker)
+    import time
     candidate_chunks = [chunks[i] for i in idx]
     client = _get_client()
-    resp = client.rerank(
-        query=query,
-        documents=candidate_chunks,
-        model=VOYAGE_RERANK_MODEL,
-        top_k=min(k, len(candidate_chunks))
-    )
+    
+    for attempt in range(4):
+        try:
+            resp = client.rerank(
+                query=query,
+                documents=candidate_chunks,
+                model=VOYAGE_RERANK_MODEL,
+                top_k=min(k, len(candidate_chunks))
+            )
+            break
+        except Exception as e:
+            if "RateLimitError" in str(type(e)) or "429" in str(e):
+                wait = 5 * (attempt + 1)
+                print(f"Voyage rerank rate limit hit, waiting {wait}s... (attempt {attempt+1})")
+                time.sleep(wait)
+            else:
+                raise
+    else:
+        raise RuntimeError("Voyage reranking failed after max retries due to rate limits.")
     
     # resp.results contains objects with .index and .relevance_score
     # Map the candidate index back to the original chunk index
