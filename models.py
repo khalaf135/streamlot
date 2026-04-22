@@ -221,17 +221,21 @@ def _run_mistral_ocr(pdf_bytes: bytes, filename: str) -> str:
     return "\n\n".join(page.markdown for page in resp.pages)
 
 
-def _answer_with_mistral(context: str, question: str) -> str:
+def _answer_with_mistral(context: str, question: str, system_prompt: str = None, user_prompt: str = None) -> str:
     from mistralai.client import Mistral
 
     client = Mistral(api_key=require_api_key("MISTRAL_API_KEY"))
+    
+    sys_prompt = system_prompt or QA_SYSTEM
+    usr_prompt = user_prompt or f"Context:\n{context}\n\nQuestion: {question}"
+    
     resp = client.chat.complete(
         model=MISTRAL_CHAT_MODEL,
         messages=[
-            {"role": "system", "content": QA_SYSTEM},
+            {"role": "system", "content": sys_prompt},
             {
                 "role": "user",
-                "content": f"Context:\n{context}\n\nQuestion: {question}",
+                "content": usr_prompt,
             },
         ],
     )
@@ -292,14 +296,16 @@ def _run_gemini_ocr(pdf_bytes: bytes, filename: str) -> str:
             pass
 
 
-def _answer_with_gemini(context: str, question: str) -> str:
+def _answer_with_gemini(context: str, question: str, system_prompt: str = None, user_prompt: str = None) -> str:
     client = _gemini_client()
+    sys_prompt = system_prompt or QA_SYSTEM
+    usr_prompt = user_prompt or f"Context:\n{context}\n\nQuestion: {question}"
     for attempt in range(4):
         try:
             resp = client.models.generate_content(
                 model=GEMINI_CHAT_MODEL,
                 contents=[
-                    f"{QA_SYSTEM}\n\nContext:\n{context}\n\nQuestion: {question}"
+                    f"{sys_prompt}\n\n{usr_prompt}"
                 ],
             )
             if hasattr(resp, "usage_metadata") and resp.usage_metadata:
@@ -352,18 +358,22 @@ def _run_qwen_ocr(pdf_bytes: bytes, filename: str) -> str:
     return "\n\n".join(texts)
 
 
-def _answer_with_qwen(context: str, question: str) -> str:
+def _answer_with_qwen(context: str, question: str, system_prompt: str = None, user_prompt: str = None) -> str:
     import dashscope
     from dashscope import Generation
 
     dashscope.api_key = require_api_key("DASHSCOPE_API_KEY")
+    
+    sys_prompt = system_prompt or QA_SYSTEM
+    usr_prompt = user_prompt or f"Context:\n{context}\n\nQuestion: {question}"
+
     resp = Generation.call(
         model=QWEN_CHAT_MODEL,
         messages=[
-            {"role": "system", "content": QA_SYSTEM},
+            {"role": "system", "content": sys_prompt},
             {
                 "role": "user",
-                "content": f"Context:\n{context}\n\nQuestion: {question}",
+                "content": usr_prompt,
             },
         ],
         result_format="message",
@@ -383,15 +393,19 @@ def _nebius_client():
     return OpenAI(base_url=NEBIUS_BASE_URL, api_key=api_key)
 
 
-def _answer_with_nebius(context: str, question: str) -> str:
+def _answer_with_nebius(context: str, question: str, system_prompt: str = None, user_prompt: str = None) -> str:
     client = _nebius_client()
+    
+    sys_prompt = system_prompt or QA_SYSTEM
+    usr_prompt = user_prompt or f"Context:\n{context}\n\nQuestion: {question}"
+    
     resp = client.chat.completions.create(
         model=NEBIUS_CHAT_MODEL,
         messages=[
-            {"role": "system", "content": QA_SYSTEM},
+            {"role": "system", "content": sys_prompt},
             {
                 "role": "user",
-                "content": f"Context:\n{context}\n\nQuestion: {question}",
+                "content": usr_prompt,
             },
         ],
     )
@@ -593,7 +607,51 @@ def perform_ocr(
     return text
 
 
-def get_answer(model_name: str, context: str, question: str) -> str:
+def get_answer(model_name: str, context: str, question: str, system_prompt: str = None, user_prompt: str = None) -> str:
     if model_name not in _QA_FUNCS:
         raise ValueError(f"Unknown QA model: {model_name}")
-    return _QA_FUNCS[model_name](context, question)
+    return _QA_FUNCS[model_name](context, question, system_prompt, user_prompt)
+
+def classify_document(model_name: str, ocr_text: str) -> dict:
+    import json
+    import re
+    from schemas import CLASSIFIER_SYSTEM
+    
+    # Send up to 4000 characters for classification to save tokens/time
+    short_text = ocr_text[:4000]
+    raw_response = get_answer(model_name, "", "", system_prompt=CLASSIFIER_SYSTEM, user_prompt=short_text)
+    
+    # Parse JSON
+    try:
+        # Strip markdown formatting if any
+        json_str = raw_response.strip()
+        if json_str.startswith("```json"):
+            json_str = json_str[7:]
+        if json_str.startswith("```"):
+            json_str = json_str[3:]
+        if json_str.endswith("```"):
+            json_str = json_str[:-3]
+        return json.loads(json_str.strip())
+    except Exception as e:
+        return {"doc_type": "unknown", "confidence": "low", "reason": f"Failed to parse JSON: {e}"}
+
+def extract_structured_data(model_name: str, doc_type: str, ocr_text: str) -> dict:
+    import json
+    from schemas import EXTRACTION_SYSTEM, build_extraction_prompt
+    
+    prompt = build_extraction_prompt(doc_type, ocr_text)
+    raw_response = get_answer(model_name, "", "", system_prompt=EXTRACTION_SYSTEM, user_prompt=prompt)
+    
+    # Parse JSON
+    try:
+        # Strip markdown formatting if any
+        json_str = raw_response.strip()
+        if json_str.startswith("```json"):
+            json_str = json_str[7:]
+        if json_str.startswith("```"):
+            json_str = json_str[3:]
+        if json_str.endswith("```"):
+            json_str = json_str[:-3]
+        return json.loads(json_str.strip())
+    except Exception as e:
+        return {"error": f"Failed to parse JSON: {e}", "raw_response": raw_response}

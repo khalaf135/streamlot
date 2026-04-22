@@ -93,6 +93,39 @@ def run() -> None:
     st.caption(f"Indexed **{len(chunks)}** chunks for retrieval.")
 
     st.divider()
+    st.subheader("Automated Document Extraction")
+    st.caption("Automatically classifies the document and extracts structured data into JSON.")
+    if st.button("Classify & Extract Data"):
+        st.session_state["last_request_tokens"] = {"ocr": 0, "embed": 0, "qa": 0}
+        from models import classify_document, extract_structured_data
+        import time
+        
+        start_t = time.time()
+        with st.spinner(f"Classifying document with {qa_model}..."):
+            classification = classify_document(qa_model, text)
+        
+        doc_type = classification.get("doc_type", "unknown")
+        if doc_type == "unknown":
+            st.warning(f"Could not classify document type. Reason: {classification.get('reason')}")
+        else:
+            st.success(f"Detected Document Type: **{doc_type.upper()}** (Confidence: {classification.get('confidence')})")
+            with st.spinner(f"Extracting fields based on {doc_type} schema..."):
+                extracted_json = extract_structured_data(qa_model, doc_type, text)
+            
+            st.json(extracted_json)
+            
+        qa_tok = st.session_state["last_request_tokens"]["qa"]
+        duration = time.time() - start_t
+        
+        qa_cost = 0.0
+        if "gemini" in qa_model.lower(): qa_cost = (qa_tok / 1_000_000) * 1.25
+        elif "mistral" in qa_model.lower(): qa_cost = (qa_tok / 1_000_000) * 2.0
+        elif "llama" in qa_model.lower() or "nebius" in qa_model.lower(): qa_cost = (qa_tok / 1_000_000) * 0.20
+        else: qa_cost = (qa_tok / 1_000_000) * 1.0
+        
+        st.caption(f"**Tokens:** QA = {qa_tok:,}  ·  **Time:** {duration:.1f}s  ·  **Cost:** ~${qa_cost:.4f}")
+
+    st.divider()
     st.subheader("Embedding")
     if st.button("Embed Document"):
         st.session_state["last_request_tokens"] = {"ocr": 0, "embed": 0, "qa": 0}
