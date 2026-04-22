@@ -32,14 +32,26 @@ def run() -> None:
         top_k = st.slider("Top-k chunks", 1, 20, 8)
         target_chars = st.slider("Chunk size (chars)", 200, 1500, 400, step=50)
         overlap = st.slider("Chunk overlap (chars)", 0, 200, 100, step=10)
+        
+        st.divider()
+        st.header("Token Usage")
+        if "token_usage" not in st.session_state:
+            st.session_state["token_usage"] = {"ocr": 0, "embed": 0, "qa": 0}
+        
+        st.metric("OCR Tokens", f"{st.session_state['token_usage']['ocr']:,}")
+        st.metric("Embed/Rerank Tokens", f"{st.session_state['token_usage']['embed']:,}")
+        st.metric("QA Tokens", f"{st.session_state['token_usage']['qa']:,}")
+        total = sum(st.session_state['token_usage'].values())
+        st.metric("Total Tokens", f"{total:,}")
 
     uploaded = st.file_uploader("Upload a PDF", type=["pdf"])
+    page_range = st.text_input("Page Range (Optional)", placeholder="e.g. 1-3, 5, 7-9 (leave blank for all)")
 
     if uploaded and st.button("Run OCR", type="primary"):
         pdf_bytes = uploaded.read()
         with st.spinner(f"Running OCR with {ocr_model}..."):
             try:
-                text = perform_ocr(ocr_model, pdf_bytes, uploaded.name)
+                text = perform_ocr(ocr_model, pdf_bytes, uploaded.name, page_range)
             except Exception as exc:  # noqa: BLE001
                 st.error(f"OCR failed: {exc}")
                 return

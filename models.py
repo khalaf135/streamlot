@@ -91,8 +91,8 @@ MISTRAL_OCR_MODEL = "mistral-ocr-latest"
 GEMINI_OCR_MODEL = os.getenv("GEMINI_OCR_MODEL", "gemini-2.5-pro")
 GEMINI_CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", GEMINI_OCR_MODEL)
 MISTRAL_CHAT_MODEL = os.getenv("MISTRAL_CHAT_MODEL", "mistral-large-latest")
-NEBIUS_CHAT_MODEL = os.getenv("NEBIUS_CHAT_MODEL", "Qwen/Qwen2.5-72B-Instruct")
-NEBIUS_VL_MODEL = os.getenv("NEBIUS_VL_MODEL", "Qwen/Qwen2.5-VL-72B-Instruct")
+NEBIUS_CHAT_MODEL = os.getenv("NEBIUS_CHAT_MODEL", "Qwen/Qwen2.5-32B-Instruct")
+NEBIUS_VL_MODEL = os.getenv("NEBIUS_VL_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
 NEBIUS_BASE_URL = "https://api.studio.nebius.ai/v1/"
 
 OCR_MODELS = [
@@ -105,10 +105,19 @@ OCR_MODELS = [
 ]
 
 QA_MODELS = [
-    "Nebius (Qwen2.5-72B)",
+    "Nebius (Qwen2.5-32B)",
     "Gemini (best)",
     "Mistral (mistral-large)",
 ]
+
+def _add_tokens(category: str, amount: int):
+    try:
+        import streamlit as st
+        if "token_usage" not in st.session_state:
+            st.session_state["token_usage"] = {"ocr": 0, "embed": 0, "qa": 0}
+        st.session_state["token_usage"][category] += amount
+    except Exception:
+        pass
 
 OCR_PROMPT = (
     "You are an OCR engine. Extract ALL text from this document exactly as it "
@@ -161,6 +170,7 @@ def _run_mistral_ocr(pdf_bytes: bytes, filename: str) -> str:
         document={"type": "document_url", "document_url": signed.url},
         include_image_base64=False,
     )
+    _add_tokens("ocr", getattr(resp.usage, "total_tokens", 0))
     return "\n\n".join(page.markdown for page in resp.pages)
 
 
@@ -178,6 +188,7 @@ def _answer_with_mistral(context: str, question: str) -> str:
             },
         ],
     )
+    _add_tokens("qa", getattr(resp.usage, "total_tokens", 0))
     return resp.choices[0].message.content or ""
 
 
@@ -219,6 +230,8 @@ def _run_gemini_ocr(pdf_bytes: bytes, filename: str) -> str:
             model=GEMINI_OCR_MODEL,
             contents=[uploaded, OCR_PROMPT],
         )
+        if hasattr(resp, "usage_metadata") and resp.usage_metadata:
+            _add_tokens("ocr", getattr(resp.usage_metadata, "total_token_count", 0))
         return resp.text or ""
     finally:
         try:
@@ -237,6 +250,8 @@ def _answer_with_gemini(context: str, question: str) -> str:
                     f"{QA_SYSTEM}\n\nContext:\n{context}\n\nQuestion: {question}"
                 ],
             )
+            if hasattr(resp, "usage_metadata") and resp.usage_metadata:
+                _add_tokens("qa", getattr(resp.usage_metadata, "total_token_count", 0))
             return resp.text or ""
         except Exception as exc:
             if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc):
@@ -301,6 +316,8 @@ def _answer_with_qwen(context: str, question: str) -> str:
         ],
         result_format="message",
     )
+    usage = resp.get("usage", {})
+    _add_tokens("qa", usage.get("total_tokens", 0))
     return resp["output"]["choices"][0]["message"]["content"]
 
 
@@ -326,6 +343,7 @@ def _answer_with_nebius(context: str, question: str) -> str:
             },
         ],
     )
+    _add_tokens("qa", getattr(resp.usage, "total_tokens", 0))
     return resp.choices[0].message.content or ""
 
 
@@ -354,6 +372,7 @@ def _run_nebius_ocr(pdf_bytes: bytes, filename: str) -> str:
             ],
             max_tokens=4096,
         )
+        _add_tokens("ocr", getattr(resp.usage, "total_tokens", 0))
         texts.append(resp.choices[0].message.content or "")
     return "\n\n".join(texts)
 
@@ -470,12 +489,16 @@ def perform_ocr(
     model_name: str,
     pdf_bytes: bytes,
     filename: str,
+    page_string: str = "",
     use_cache: bool = True,
 ) -> str:
     if model_name not in _OCR_FUNCS:
         raise ValueError(f"Unknown OCR model: {model_name}")
         
-    pdf_hash = _file_hash(pdf_bytes)
+    from pdf_utils import trim_pdf_pages
+    trimmed_pdf = trim_pdf_pages(pdf_bytes, page_string)
+        
+    pdf_hash = _file_hash(trimmed_pdf)
     
     if use_cache:
         conn = _get_db_connection()
@@ -492,7 +515,7 @@ def perform_ocr(
             return result[0]
             
     # Not cached, perform OCR
-    text = _OCR_FUNCS[model_name](pdf_bytes, filename)
+    text = _OCR_FUNCS[model_name](trimmed_pdf, filename)
     
     # Save to database
     if use_cache:
