@@ -499,7 +499,7 @@ _OCR_FUNCS = {
 }
 
 _QA_FUNCS = {
-    "Nebius (Qwen2.5-72B)": _answer_with_nebius,
+    "Nebius (Qwen2.5-32B)": _answer_with_nebius,
     "Gemini (best)": _answer_with_gemini,
     "Mistral (mistral-large)": _answer_with_mistral,
 }
