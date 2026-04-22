@@ -116,6 +116,10 @@ def _add_tokens(category: str, amount: int):
         if "token_usage" not in st.session_state:
             st.session_state["token_usage"] = {"ocr": 0, "embed": 0, "qa": 0}
         st.session_state["token_usage"][category] += amount
+        
+        if "last_request_tokens" not in st.session_state:
+            st.session_state["last_request_tokens"] = {"ocr": 0, "embed": 0, "qa": 0}
+        st.session_state["last_request_tokens"][category] += amount
     except Exception:
         pass
 

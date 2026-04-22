@@ -48,6 +48,7 @@ def run() -> None:
     page_range = st.text_input("Page Range (Optional)", placeholder="e.g. 1-3, 5, 7-9 (leave blank for all)")
 
     if uploaded and st.button("Run OCR", type="primary"):
+        st.session_state["last_request_tokens"] = {"ocr": 0, "embed": 0, "qa": 0}
         pdf_bytes = uploaded.read()
         with st.spinner(f"Running OCR with {ocr_model}..."):
             try:
@@ -58,6 +59,8 @@ def run() -> None:
         st.session_state.update(
             ocr_text=text, ocr_model=ocr_model, ocr_file=uploaded.name
         )
+        tokens_used = st.session_state["last_request_tokens"]["ocr"]
+        st.success(f"OCR completed! (Used {tokens_used:,} tokens)")
 
     if "ocr_text" not in st.session_state:
         st.info("Upload a PDF and click **Run OCR** to begin.")
@@ -87,6 +90,7 @@ def run() -> None:
     st.subheader("Ask a question")
     question = st.text_input("Your question (Arabic or English)")
     if question and st.button("Get answer"):
+        st.session_state["last_request_tokens"] = {"ocr": 0, "embed": 0, "qa": 0}
         top = cosine_topk(question, chunks, filename=st.session_state['ocr_file'], k=top_k)
         with st.expander("Retrieved chunks"):
             for rank, (idx, sim) in enumerate(top, 1):
@@ -100,6 +104,9 @@ def run() -> None:
                 st.error(f"QA failed: {exc}")
                 return
         st.success(answer)
+        qa_tok = st.session_state["last_request_tokens"]["qa"]
+        embed_tok = st.session_state["last_request_tokens"]["embed"]
+        st.caption(f"**Tokens used for this request:** QA = {qa_tok:,} | Embed/Rerank = {embed_tok:,}")
 
     st.divider()
     st.subheader("Evaluation — 22 standard MOA questions")
