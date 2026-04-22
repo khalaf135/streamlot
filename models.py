@@ -98,7 +98,7 @@ NEBIUS_BASE_URL = "https://api.studio.nebius.ai/v1/"
 OCR_MODELS = [
     "Mistral OCR (mistral-ocr-latest)",
     "Gemini (best)",
-    "Nebius VL (Qwen2.5-VL-72B)",
+    "Nebius VL (Qwen2.5-VL-7B)",
     "Surya OCR (local)",
     "EasyOCR (local)",
     "Docling (local)",
