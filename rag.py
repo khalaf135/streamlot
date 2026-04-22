@@ -10,6 +10,7 @@ import os
 
 import numpy as np
 from dotenv import load_dotenv
+import streamlit as st
 from models import require_api_key, _get_db_connection
 
 load_dotenv()
@@ -54,7 +55,12 @@ def _embed_raw(texts: list[str]) -> np.ndarray:
                 # Catch rate limits (429) specifically
                 if "RateLimitError" in str(type(e)) or "429" in str(e):
                     wait = 10 * (attempt + 1)
-                    print(f"Voyage rate limit hit, waiting {wait}s... (attempt {attempt+1})")
+                    msg = f"Voyage embed rate limit hit, waiting {wait}s... (attempt {attempt+1})"
+                    print(msg)
+                    try:
+                        st.warning(msg)
+                    except:
+                        pass
                     time.sleep(wait)
                 else:
                     raise
@@ -92,6 +98,11 @@ def ensure_embedded(texts: list[str], filename: str) -> str:
             return doc_hash
             
     # Not embedded, do it now using Voyage API
+    try:
+        st.toast(f"Embedding {len(texts)} chunks for {filename} via Voyage AI...", icon="⏳")
+    except:
+        pass
+        
     vecs = _embed_raw(texts) # ndarray
     
     with conn.cursor() as cur:
@@ -102,6 +113,11 @@ def ensure_embedded(texts: list[str], filename: str) -> str:
             """, (doc_hash, i, text, vec.tolist(), filename))
     conn.commit()
     conn.close()
+    
+    try:
+        st.toast(f"Saved {len(texts)} embeddings to PostgreSQL!", icon="✅")
+    except:
+        pass
     
     return doc_hash
 
@@ -157,7 +173,12 @@ def cosine_topk(
         except Exception as e:
             if "RateLimitError" in str(type(e)) or "429" in str(e):
                 wait = 5 * (attempt + 1)
-                print(f"Voyage rerank rate limit hit, waiting {wait}s... (attempt {attempt+1})")
+                msg = f"Voyage rerank rate limit hit, waiting {wait}s... (attempt {attempt+1})"
+                print(msg)
+                try:
+                    st.warning(msg)
+                except:
+                    pass
                 time.sleep(wait)
             else:
                 raise
