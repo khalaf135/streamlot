@@ -49,8 +49,9 @@ def _embed_raw(texts: list[str]) -> np.ndarray:
                     input_type="document"
                 )
                 all_vecs.extend(resp.embeddings)
+                from models import tracked_sleep
                 if hasattr(resp, "usage"):
-                    from models import _add_tokens, tracked_sleep
+                    from models import _add_tokens
                     _add_tokens("embed", getattr(resp.usage, "total_tokens", 0))
                 tracked_sleep(1)  # small delay to prevent rapid RPM/TPM spikes
                 break
