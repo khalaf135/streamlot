@@ -29,6 +29,18 @@ def _get_api_key(key_name: str) -> str | None:
     except Exception:
         return None
 
+def require_api_key(key_name: str) -> str:
+    key = _get_api_key(key_name)
+    if not key:
+        available = []
+        try:
+            import streamlit as st
+            available = list(st.secrets.keys())
+        except Exception:
+            pass
+        raise RuntimeError(f"{key_name} not set. Streamlit sees these secret keys: {available}")
+    return key
+
 CACHE_DIR = Path(__file__).parent / ".ocr_cache"
 CACHE_DIR.mkdir(exist_ok=True)
 
@@ -98,9 +110,7 @@ def _pdf_to_png_pages(pdf_bytes: bytes, dpi: int = 200) -> list[bytes]:
 def _run_mistral_ocr(pdf_bytes: bytes, filename: str) -> str:
     from mistralai.client import Mistral
 
-    api_key = _get_api_key("MISTRAL_API_KEY")
-    if not api_key:
-        raise RuntimeError("MISTRAL_API_KEY not set")
+    api_key = require_api_key("MISTRAL_API_KEY")
     client = Mistral(api_key=api_key)
 
     uploaded = client.files.upload(
@@ -119,7 +129,7 @@ def _run_mistral_ocr(pdf_bytes: bytes, filename: str) -> str:
 def _answer_with_mistral(context: str, question: str) -> str:
     from mistralai.client import Mistral
 
-    client = Mistral(api_key=_get_api_key("MISTRAL_API_KEY"))
+    client = Mistral(api_key=require_api_key("MISTRAL_API_KEY"))
     resp = client.chat.complete(
         model=MISTRAL_CHAT_MODEL,
         messages=[
@@ -141,7 +151,13 @@ def _gemini_client():
 
     api_key = _get_api_key("GOOGLE_API_KEY") or _get_api_key("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY not set")
+        available = []
+        try:
+            import streamlit as st
+            available = list(st.secrets.keys())
+        except Exception:
+            pass
+        raise RuntimeError(f"GOOGLE_API_KEY not set. Streamlit sees these secret keys: {available}")
     return genai.Client(api_key=api_key)
 
 
@@ -201,9 +217,7 @@ def _run_qwen_ocr(pdf_bytes: bytes, filename: str) -> str:
     import dashscope
     from dashscope import MultiModalConversation
 
-    api_key = _get_api_key("DASHSCOPE_API_KEY")
-    if not api_key:
-        raise RuntimeError("DASHSCOPE_API_KEY not set")
+    api_key = require_api_key("DASHSCOPE_API_KEY")
     dashscope.api_key = api_key
 
     page_pngs = _pdf_to_png_pages(pdf_bytes)
@@ -237,7 +251,7 @@ def _answer_with_qwen(context: str, question: str) -> str:
     import dashscope
     from dashscope import Generation
 
-    dashscope.api_key = _get_api_key("DASHSCOPE_API_KEY")
+    dashscope.api_key = require_api_key("DASHSCOPE_API_KEY")
     resp = Generation.call(
         model=QWEN_CHAT_MODEL,
         messages=[
@@ -258,9 +272,7 @@ def _answer_with_qwen(context: str, question: str) -> str:
 def _nebius_client():
     from openai import OpenAI
 
-    api_key = _get_api_key("NEBIUS_API_KEY")
-    if not api_key:
-        raise RuntimeError("NEBIUS_API_KEY not set")
+    api_key = require_api_key("NEBIUS_API_KEY")
     return OpenAI(base_url=NEBIUS_BASE_URL, api_key=api_key)
 
 
