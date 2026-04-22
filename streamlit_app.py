@@ -51,16 +51,19 @@ def run() -> None:
         st.session_state["last_request_tokens"] = {"ocr": 0, "embed": 0, "qa": 0}
         pdf_bytes = uploaded.read()
         with st.spinner(f"Running OCR with {ocr_model}..."):
+            import time
+            start_time = time.time()
             try:
                 text = perform_ocr(ocr_model, pdf_bytes, uploaded.name, page_range)
             except Exception as exc:  # noqa: BLE001
                 st.error(f"OCR failed: {exc}")
                 return
+            duration = time.time() - start_time
         st.session_state.update(
             ocr_text=text, ocr_model=ocr_model, ocr_file=uploaded.name
         )
         tokens_used = st.session_state["last_request_tokens"]["ocr"]
-        st.success(f"OCR completed! (Used {tokens_used:,} tokens)")
+        st.success(f"OCR completed in {duration:.1f}s! (Used {tokens_used:,} tokens)")
 
     if "ocr_text" not in st.session_state:
         st.info("Upload a PDF and click **Run OCR** to begin.")
@@ -98,15 +101,18 @@ def run() -> None:
                 st.text(chunks[idx])
         context = _build_context(chunks, top)
         with st.spinner(f"Answering with {qa_model}..."):
+            import time
+            start_time = time.time()
             try:
                 answer = get_answer(qa_model, context, question)
             except Exception as exc:  # noqa: BLE001
                 st.error(f"QA failed: {exc}")
                 return
+            duration = time.time() - start_time
         st.success(answer)
         qa_tok = st.session_state["last_request_tokens"]["qa"]
         embed_tok = st.session_state["last_request_tokens"]["embed"]
-        st.caption(f"**Tokens used for this request:** QA = {qa_tok:,} | Embed/Rerank = {embed_tok:,}")
+        st.caption(f"**Tokens used for this request:** QA = {qa_tok:,} | Embed/Rerank = {embed_tok:,}  ·  **Time:** {duration:.1f}s")
 
     st.divider()
     st.subheader("Evaluation — 22 standard MOA questions")
