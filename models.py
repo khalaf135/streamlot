@@ -91,8 +91,8 @@ MISTRAL_OCR_MODEL = "mistral-ocr-latest"
 GEMINI_OCR_MODEL = os.getenv("GEMINI_OCR_MODEL", "gemini-2.5-pro")
 GEMINI_CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", GEMINI_OCR_MODEL)
 MISTRAL_CHAT_MODEL = os.getenv("MISTRAL_CHAT_MODEL", "mistral-large-latest")
-NEBIUS_CHAT_MODEL = os.getenv("NEBIUS_CHAT_MODEL", "Qwen/Qwen2.5-32B-Instruct")
-NEBIUS_VL_MODEL = os.getenv("NEBIUS_VL_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
+NEBIUS_CHAT_MODEL = os.getenv("NEBIUS_CHAT_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+NEBIUS_VL_MODEL = os.getenv("NEBIUS_VL_MODEL", "Qwen/Qwen2.5-VL-72B-Instruct")
 NEBIUS_BASE_URL = "https://api.studio.nebius.ai/v1/"
 
 OCR_MODELS = [
@@ -105,7 +105,7 @@ OCR_MODELS = [
 ]
 
 QA_MODELS = [
-    "Nebius (Qwen2.5-32B)",
+    "Nebius (Llama-3.3-70B)",
     "Gemini (best)",
     "Mistral (mistral-large)",
 ]
@@ -126,13 +126,12 @@ OCR_PROMPT = (
 )
 
 QA_SYSTEM = (
-    "You answer questions about a company legal document using ONLY the "
-    "provided context. Read the ENTIRE context carefully before answering. "
-    "Look for exact matches AND related terms (e.g. 'License No' matches "
-    "'license number', 'Share Capital' matches 'capital'). "
-    "Extract and quote exact names, numbers, dates, and identifiers. "
-    "Only say you don't know if the information is truly absent from "
-    "every part of the context."
+    "You are an expert legal assistant analyzing company legal documents. "
+    "Use ONLY the provided context to answer the question. "
+    "Provide ONLY the specific requested information. Keep your answer "
+    "as short and concise as possible (e.g., just the name, date, or number). "
+    "Do not include conversational filler or explanations. "
+    "If the information is missing, reply 'Not found in document'."
 )
 
 
@@ -499,7 +498,7 @@ _OCR_FUNCS = {
 }
 
 _QA_FUNCS = {
-    "Nebius (Qwen2.5-32B)": _answer_with_nebius,
+    "Nebius (Llama-3.3-70B)": _answer_with_nebius,
     "Gemini (best)": _answer_with_gemini,
     "Mistral (mistral-large)": _answer_with_mistral,
 }
