@@ -1,0 +1,15 @@
+streamlit>=1.32
+numpy>=1.26
+pandas>=2.1
+sentence-transformers>=2.7
+scikit-learn>=1.4
+mistralai>=1.2
+google-genai>=0.3
+dashscope>=1.20
+pymupdf>=1.24
+Pillow>=10
+python-dotenv>=1.0
+openai>=1.0
+surya-ocr>=0.17
+easyocr>=1.7
+docling>=2.0
