@@ -58,7 +58,8 @@ def run() -> None:
             except Exception as exc:  # noqa: BLE001
                 st.error(f"OCR failed: {exc}")
                 return
-            duration = time.time() - start_time
+            from models import get_and_reset_sleep
+            duration = (time.time() - start_time) - get_and_reset_sleep()
         st.session_state.update(
             ocr_text=text, ocr_model=ocr_model, ocr_file=uploaded.name
         )
@@ -108,7 +109,8 @@ def run() -> None:
             except Exception as exc:  # noqa: BLE001
                 st.error(f"QA failed: {exc}")
                 return
-            duration = time.time() - start_time
+            from models import get_and_reset_sleep
+            duration = (time.time() - start_time) - get_and_reset_sleep()
         st.success(answer)
         qa_tok = st.session_state["last_request_tokens"]["qa"]
         embed_tok = st.session_state["last_request_tokens"]["embed"]

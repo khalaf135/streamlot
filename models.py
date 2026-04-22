@@ -13,6 +13,19 @@ import hashlib
 import os
 import tempfile
 import time
+import threading
+
+_sleep_tracker = threading.local()
+
+def get_and_reset_sleep() -> float:
+    val = getattr(_sleep_tracker, "total", 0.0)
+    _sleep_tracker.total = 0.0
+    return val
+
+def tracked_sleep(secs: float):
+    _sleep_tracker.total = getattr(_sleep_tracker, "total", 0.0) + secs
+    time.sleep(secs)
+
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -238,7 +251,7 @@ def _run_gemini_ocr(pdf_bytes: bytes, filename: str) -> str:
                 break
             if state == "FAILED":
                 raise RuntimeError("Gemini file upload failed")
-            time.sleep(1)
+            tracked_sleep(1)
         resp = client.models.generate_content(
             model=GEMINI_OCR_MODEL,
             contents=[uploaded, OCR_PROMPT],
@@ -270,7 +283,7 @@ def _answer_with_gemini(context: str, question: str) -> str:
             if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc):
                 wait = 30 * (attempt + 1)
                 print(f"QA rate-limited, waiting {wait}s (attempt {attempt+1}/4)...")
-                time.sleep(wait)
+                tracked_sleep(wait)
             else:
                 raise
     raise RuntimeError("QA failed after max retries")

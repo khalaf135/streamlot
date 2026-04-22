@@ -50,9 +50,9 @@ def _embed_raw(texts: list[str]) -> np.ndarray:
                 )
                 all_vecs.extend(resp.embeddings)
                 if hasattr(resp, "usage"):
-                    from models import _add_tokens
+                    from models import _add_tokens, tracked_sleep
                     _add_tokens("embed", getattr(resp.usage, "total_tokens", 0))
-                time.sleep(1)  # small delay to prevent rapid RPM/TPM spikes
+                tracked_sleep(1)  # small delay to prevent rapid RPM/TPM spikes
                 break
             except Exception as e:
                 # Catch rate limits (429) specifically
@@ -64,7 +64,8 @@ def _embed_raw(texts: list[str]) -> np.ndarray:
                         st.warning(msg)
                     except:
                         pass
-                    time.sleep(wait)
+                    from models import tracked_sleep
+                    tracked_sleep(wait)
                 else:
                     raise
         else:
@@ -185,7 +186,8 @@ def cosine_topk(
                     st.warning(msg)
                 except:
                     pass
-                time.sleep(wait)
+                from models import tracked_sleep
+                tracked_sleep(wait)
             else:
                 raise
     else:
