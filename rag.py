@@ -15,7 +15,7 @@ from models import require_api_key
 load_dotenv()
 
 VOYAGE_EMBED_MODEL = os.getenv("VOYAGE_EMBED_MODEL", "voyage-law-2")
-VOYAGE_RERANK_MODEL = os.getenv("VOYAGE_RERANK_MODEL", "voyage-rerank-2.5")
+VOYAGE_RERANK_MODEL = os.getenv("VOYAGE_RERANK_MODEL", "rerank-2.5")
 
 _client = None
 # Cache: maps a hash of the chunk list to its embedding matrix
