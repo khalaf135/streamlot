@@ -37,8 +37,9 @@ def _embed_raw(texts: list[str]) -> np.ndarray:
     import time
     client = _get_client()
     all_vecs: list[list[float]] = []
-    # Voyage has strict rate limits, so we use a smaller batch size and delay
-    batch_size = 48
+    # Voyage has strict rate limits, so we use a smaller batch size
+    # 16 chunks = ~16,000 chars = ~4,000 tokens, safely below TPM limits
+    batch_size = 16
     for start in range(0, len(texts), batch_size):
         batch = texts[start : start + batch_size]
         for attempt in range(5):
