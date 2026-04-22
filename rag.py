@@ -71,6 +71,7 @@ def _embed_raw(texts: list[str]) -> np.ndarray:
 def _doc_hash(texts: list[str]) -> str:
     import hashlib
     h = hashlib.sha256()
+    h.update(VOYAGE_EMBED_MODEL.encode("utf-8"))
     for t in texts:
         h.update(t.encode("utf-8"))
     return h.hexdigest()
