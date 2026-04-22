@@ -170,7 +170,12 @@ def _run_mistral_ocr(pdf_bytes: bytes, filename: str) -> str:
         document={"type": "document_url", "document_url": signed.url},
         include_image_base64=False,
     )
-    _add_tokens("ocr", getattr(resp.usage, "total_tokens", 0))
+    try:
+        usage = getattr(resp, "usage", None)
+        if usage:
+            _add_tokens("ocr", getattr(usage, "total_tokens", 0))
+    except Exception:
+        pass
     return "\n\n".join(page.markdown for page in resp.pages)
 
 
@@ -188,7 +193,12 @@ def _answer_with_mistral(context: str, question: str) -> str:
             },
         ],
     )
-    _add_tokens("qa", getattr(resp.usage, "total_tokens", 0))
+    try:
+        usage = getattr(resp, "usage", None)
+        if usage:
+            _add_tokens("qa", getattr(usage, "total_tokens", 0))
+    except Exception:
+        pass
     return resp.choices[0].message.content or ""
 
 
@@ -343,7 +353,12 @@ def _answer_with_nebius(context: str, question: str) -> str:
             },
         ],
     )
-    _add_tokens("qa", getattr(resp.usage, "total_tokens", 0))
+    try:
+        usage = getattr(resp, "usage", None)
+        if usage:
+            _add_tokens("qa", getattr(usage, "total_tokens", 0))
+    except Exception:
+        pass
     return resp.choices[0].message.content or ""
 
 
@@ -372,7 +387,12 @@ def _run_nebius_ocr(pdf_bytes: bytes, filename: str) -> str:
             ],
             max_tokens=4096,
         )
-        _add_tokens("ocr", getattr(resp.usage, "total_tokens", 0))
+        try:
+            usage = getattr(resp, "usage", None)
+            if usage:
+                _add_tokens("ocr", getattr(usage, "total_tokens", 0))
+        except Exception:
+            pass
         texts.append(resp.choices[0].message.content or "")
     return "\n\n".join(texts)
 
