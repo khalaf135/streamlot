@@ -10,7 +10,7 @@ import os
 
 import numpy as np
 from dotenv import load_dotenv
-from models import require_api_key
+from models import require_api_key, _get_db_connection
 
 load_dotenv()
 
@@ -18,39 +18,6 @@ VOYAGE_EMBED_MODEL = os.getenv("VOYAGE_EMBED_MODEL", "voyage-law-2")
 VOYAGE_RERANK_MODEL = os.getenv("VOYAGE_RERANK_MODEL", "rerank-2.5")
 
 _client = None
-
-_db_initialized = False
-
-def _get_db_connection():
-    global _db_initialized
-    import psycopg2
-    from pgvector.psycopg2 import register_vector
-    
-    db_url = require_api_key("DATABASE_URL")
-    conn = psycopg2.connect(db_url)
-    
-    if not _db_initialized:
-        with conn.cursor() as cur:
-            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS document_chunks (
-                    id SERIAL PRIMARY KEY,
-                    document_hash TEXT NOT NULL,
-                    chunk_index INTEGER NOT NULL,
-                    chunk_text TEXT NOT NULL,
-                    embedding VECTOR(1024)
-                );
-            """)
-            cur.execute("CREATE INDEX IF NOT EXISTS doc_chunks_hash_idx ON document_chunks (document_hash);")
-        conn.commit()
-        _db_initialized = True
-        
-    try:
-        register_vector(conn)
-    except Exception as e:
-        print("Warning: failed to register pgvector. Ensure pgvector extension is enabled.", e)
-        
-    return conn
 
 
 def _get_client():

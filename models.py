@@ -41,8 +41,50 @@ def require_api_key(key_name: str) -> str:
         raise RuntimeError(f"{key_name} not set. Streamlit sees these secret keys: {available}")
     return key
 
-CACHE_DIR = Path(__file__).parent / ".ocr_cache"
-CACHE_DIR.mkdir(exist_ok=True)
+_db_initialized = False
+
+def _get_db_connection():
+    global _db_initialized
+    import psycopg2
+    from pgvector.psycopg2 import register_vector
+    
+    db_url = require_api_key("DATABASE_URL")
+    conn = psycopg2.connect(db_url)
+    
+    if not _db_initialized:
+        with conn.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS document_chunks (
+                    id SERIAL PRIMARY KEY,
+                    document_hash TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    chunk_text TEXT NOT NULL,
+                    embedding VECTOR(1024)
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS doc_chunks_hash_idx ON document_chunks (document_hash);")
+            
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ocr_results (
+                    id SERIAL PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    model_name TEXT NOT NULL,
+                    pdf_hash TEXT NOT NULL,
+                    extracted_text TEXT NOT NULL
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS ocr_hash_idx ON ocr_results(pdf_hash, model_name);")
+            
+        conn.commit()
+        _db_initialized = True
+        
+    try:
+        register_vector(conn)
+    except Exception as e:
+        print("Warning: failed to register pgvector.", e)
+        
+    return conn
 
 MISTRAL_OCR_MODEL = "mistral-ocr-latest"
 GEMINI_OCR_MODEL = os.getenv("GEMINI_OCR_MODEL", "gemini-2.5-pro")
@@ -85,12 +127,7 @@ QA_SYSTEM = (
 
 
 def _file_hash(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()[:16]
-
-
-def _cache_path(model_name: str, data: bytes) -> Path:
-    safe = "".join(c if c.isalnum() else "_" for c in model_name)
-    return CACHE_DIR / f"{safe}_{_file_hash(data)}.txt"
+    return hashlib.sha256(data).hexdigest()
 
 
 def _pdf_to_png_pages(pdf_bytes: bytes, dpi: int = 200) -> list[bytes]:
@@ -436,11 +473,37 @@ def perform_ocr(
 ) -> str:
     if model_name not in _OCR_FUNCS:
         raise ValueError(f"Unknown OCR model: {model_name}")
-    cpath = _cache_path(model_name, pdf_bytes)
-    if use_cache and cpath.exists():
-        return cpath.read_text(encoding="utf-8")
+        
+    pdf_hash = _file_hash(pdf_bytes)
+    
+    if use_cache:
+        conn = _get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT extracted_text FROM ocr_results 
+                WHERE pdf_hash = %s AND model_name = %s 
+                LIMIT 1
+            """, (pdf_hash, model_name))
+            result = cur.fetchone()
+        conn.close()
+        
+        if result:
+            return result[0]
+            
+    # Not cached, perform OCR
     text = _OCR_FUNCS[model_name](pdf_bytes, filename)
-    cpath.write_text(text, encoding="utf-8")
+    
+    # Save to database
+    if use_cache:
+        conn = _get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO ocr_results (filename, model_name, pdf_hash, extracted_text)
+                VALUES (%s, %s, %s, %s)
+            """, (filename, model_name, pdf_hash, text))
+        conn.commit()
+        conn.close()
+        
     return text
 
 
