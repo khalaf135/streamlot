@@ -1,0 +1,10 @@
+libjpeg-dev
+zlib1g-dev
+libfreetype6-dev
+liblcms2-dev
+libwebp-dev
+tesseract-ocr
+tesseract-ocr-ara
+ffmpeg
+libsm6
+libxext6
