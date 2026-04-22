@@ -65,33 +65,43 @@ def _get_db_connection():
     conn = psycopg2.connect(db_url)
     
     if not _db_initialized:
-        with conn.cursor() as cur:
-            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS document_chunks (
-                    id SERIAL PRIMARY KEY,
-                    document_hash TEXT NOT NULL,
-                    chunk_index INTEGER NOT NULL,
-                    chunk_text TEXT NOT NULL,
-                    embedding VECTOR(1024)
-                );
-            """)
-            cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS filename TEXT;")
-            cur.execute("CREATE INDEX IF NOT EXISTS doc_chunks_hash_idx ON document_chunks (document_hash);")
-            
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS ocr_results (
-                    id SERIAL PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    model_name TEXT NOT NULL,
-                    pdf_hash TEXT NOT NULL,
-                    extracted_text TEXT NOT NULL
-                );
-            """)
-            cur.execute("CREATE INDEX IF NOT EXISTS ocr_hash_idx ON ocr_results(pdf_hash, model_name);")
-            
-        conn.commit()
-        _db_initialized = True
+        try:
+            with conn.cursor() as cur:
+                # Set a short timeout so we don't hang if another worker holds the DDL lock
+                cur.execute("SET statement_timeout = '3s';")
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS document_chunks (
+                        id SERIAL PRIMARY KEY,
+                        document_hash TEXT NOT NULL,
+                        chunk_index INTEGER NOT NULL,
+                        chunk_text TEXT NOT NULL,
+                        embedding VECTOR(1024),
+                        filename TEXT
+                    );
+                """)
+                cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS filename TEXT;")
+                cur.execute("CREATE INDEX IF NOT EXISTS doc_chunks_hash_idx ON document_chunks (document_hash);")
+                
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ocr_results (
+                        id SERIAL PRIMARY KEY,
+                        filename TEXT NOT NULL,
+                        model_name TEXT NOT NULL,
+                        pdf_hash TEXT NOT NULL,
+                        extracted_text TEXT NOT NULL
+                    );
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS ocr_hash_idx ON ocr_results(pdf_hash, model_name);")
+                # Reset timeout to default (0 means no timeout)
+                cur.execute("SET statement_timeout = '0';")
+            conn.commit()
+            _db_initialized = True
+        except Exception as e:
+            conn.rollback()
+            print("DB init warning (likely lock contention from another worker):", e)
+            # Assume it's initialized if we hit a lock contention
+            _db_initialized = True
         
     try:
         register_vector(conn)
