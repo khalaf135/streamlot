@@ -18,8 +18,39 @@ VOYAGE_EMBED_MODEL = os.getenv("VOYAGE_EMBED_MODEL", "voyage-law-2")
 VOYAGE_RERANK_MODEL = os.getenv("VOYAGE_RERANK_MODEL", "rerank-2.5")
 
 _client = None
-# Cache: maps a hash of the chunk list to its embedding matrix
-_embed_cache: dict[int, np.ndarray] = {}
+
+_db_initialized = False
+
+def _get_db_connection():
+    global _db_initialized
+    import psycopg2
+    from pgvector.psycopg2 import register_vector
+    
+    db_url = require_api_key("DATABASE_URL")
+    conn = psycopg2.connect(db_url)
+    
+    if not _db_initialized:
+        with conn.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS document_chunks (
+                    id SERIAL PRIMARY KEY,
+                    document_hash TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    chunk_text TEXT NOT NULL,
+                    embedding VECTOR(1024)
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS doc_chunks_hash_idx ON document_chunks (document_hash);")
+        conn.commit()
+        _db_initialized = True
+        
+    try:
+        register_vector(conn)
+    except Exception as e:
+        print("Warning: failed to register pgvector. Ensure pgvector extension is enabled.", e)
+        
+    return conn
 
 
 def _get_client():
@@ -70,46 +101,80 @@ def _embed_raw(texts: list[str]) -> np.ndarray:
     return arr
 
 
-def embed(texts: list[str], use_cache: bool = True) -> np.ndarray:
-    """Embed texts, using an in-memory cache to avoid redundant API calls."""
+def _doc_hash(texts: list[str]) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    for t in texts:
+        h.update(t.encode("utf-8"))
+    return h.hexdigest()
+
+def ensure_embedded(texts: list[str]) -> str:
+    """Ensure texts are embedded and saved to DB. Returns document hash."""
     if not texts:
-        return np.zeros((0, 1), dtype=np.float32)
-    key = hash(tuple(texts))
-    if use_cache and key in _embed_cache:
-        return _embed_cache[key]
-    vecs = _embed_raw(texts)
-    if use_cache:
-        _embed_cache[key] = vecs
-    return vecs
+        return ""
+        
+    doc_hash = _doc_hash(texts)
+    
+    conn = _get_db_connection()
+    with conn.cursor() as cur:
+        # Check if already embedded
+        cur.execute("SELECT 1 FROM document_chunks WHERE document_hash = %s LIMIT 1", (doc_hash,))
+        if cur.fetchone():
+            conn.close()
+            return doc_hash
+            
+    # Not embedded, do it now using Voyage API
+    vecs = _embed_raw(texts) # ndarray
+    
+    with conn.cursor() as cur:
+        for i, (text, vec) in enumerate(zip(texts, vecs)):
+            cur.execute("""
+                INSERT INTO document_chunks (document_hash, chunk_index, chunk_text, embedding)
+                VALUES (%s, %s, %s, %s)
+            """, (doc_hash, i, text, vec.tolist()))
+    conn.commit()
+    conn.close()
+    
+    return doc_hash
 
 
 def cosine_topk(
     query: str, chunks: list[str], k: int = 5, use_reranker: bool = True
 ) -> list[tuple[int, float]]:
     """Return [(chunk_index, relevance_score)] for the top-k chunks.
-    If use_reranker is True, gets top 20 by cosine, then reranks with Voyage.
+    If use_reranker is True, gets top 20 from PostgreSQL via vector search, then reranks with Voyage.
     """
     if not chunks:
         return []
+        
+    # Ensure all chunks are embedded and mapped to a document_hash in the DB
+    doc_hash = ensure_embedded(chunks)
     
-    # 1. First pass retrieval (vector search)
-    q = _embed_raw([query])[0]
-    M = embed(chunks, use_cache=True)
-    sims = M @ q
-    
-    # Get top candidates for reranking
+    # 1. First pass retrieval (PostgreSQL vector search)
+    q_vec = _embed_raw([query])[0]
     num_candidates = min(20 if use_reranker else k, len(chunks))
-    idx = np.argsort(-sims)[:num_candidates]
+    
+    conn = _get_db_connection()
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT chunk_index, 1 - (embedding <=> %s::vector) AS similarity
+            FROM document_chunks
+            WHERE document_hash = %s
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+        """, (q_vec.tolist(), doc_hash, q_vec.tolist(), num_candidates))
+        results = cur.fetchall()
+    conn.close()
+    
+    idx_and_sim = [(row[0], float(row[1])) for row in results]
     
     if not use_reranker or len(chunks) == 1:
-        # Just return cosine top k
-        k = min(k, len(chunks))
-        idx_k = np.argsort(-sims)[:k]
-        return [(int(i), float(sims[i])) for i in idx_k]
+        # Just return Postgres top k
+        return idx_and_sim[:k]
     
     # 2. Second pass (Reranker)
     import time
-    candidate_chunks = [chunks[i] for i in idx]
+    candidate_chunks = [chunks[i] for i, _ in idx_and_sim]
     client = _get_client()
     
     for attempt in range(4):
@@ -135,7 +200,7 @@ def cosine_topk(
     # Map the candidate index back to the original chunk index
     final_results = []
     for r in resp.results:
-        original_idx = int(idx[r.index])
+        original_idx = idx_and_sim[r.index][0]
         final_results.append((original_idx, float(r.relevance_score)))
         
     return final_results

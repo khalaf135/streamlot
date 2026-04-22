@@ -14,3 +14,5 @@ surya-ocr>=0.17
 easyocr>=1.7
 docling>=2.0
 voyageai
+psycopg2-binary
+pgvector
