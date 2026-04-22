@@ -1,8 +1,6 @@
 """Embeddings + cosine-similarity retrieval.
 
-Uses Nebius AI's bge-multilingual-gemma2 embedding model via
-OpenAI-compatible API for high-quality Arabic + English embeddings.
-
+Uses Voyage AI's voyage-law-2 embedding model.
 Chunk embeddings are cached in memory so they are computed only ONCE
 per document, not on every question.
 """
@@ -12,11 +10,12 @@ import os
 
 import numpy as np
 from dotenv import load_dotenv
+from models import require_api_key
 
 load_dotenv()
 
-NEBIUS_BASE_URL = "https://api.studio.nebius.ai/v1/"
-NEBIUS_EMBED_MODEL = os.getenv("NEBIUS_EMBED_MODEL", "Qwen/Qwen3-Embedding-8B")
+VOYAGE_EMBED_MODEL = os.getenv("VOYAGE_EMBED_MODEL", "voyage-law-2")
+VOYAGE_RERANK_MODEL = os.getenv("VOYAGE_RERANK_MODEL", "voyage-rerank-2.5")
 
 _client = None
 # Cache: maps a hash of the chunk list to its embedding matrix
@@ -26,28 +25,26 @@ _embed_cache: dict[int, np.ndarray] = {}
 def _get_client():
     global _client
     if _client is None:
-        from openai import OpenAI
+        import voyageai
 
-        api_key = os.getenv("NEBIUS_API_KEY")
-        if not api_key:
-            raise RuntimeError("NEBIUS_API_KEY not set")
-        _client = OpenAI(base_url=NEBIUS_BASE_URL, api_key=api_key)
+        api_key = require_api_key("VOYAGE_API_KEY")
+        _client = voyageai.Client(api_key=api_key)
     return _client
 
 
 def _embed_raw(texts: list[str]) -> np.ndarray:
-    """Call Nebius embed API in batches."""
+    """Call Voyage AI embed API in batches."""
     client = _get_client()
     all_vecs: list[list[float]] = []
     # Batch in groups of 96 to stay safely under limits
     batch_size = 96
     for start in range(0, len(texts), batch_size):
         batch = texts[start : start + batch_size]
-        resp = client.embeddings.create(
-            model=NEBIUS_EMBED_MODEL,
-            input=batch,
+        resp = client.embed(
+            texts=batch,
+            model=VOYAGE_EMBED_MODEL,
         )
-        all_vecs.extend([d.embedding for d in resp.data])
+        all_vecs.extend(resp.embeddings)
     arr = np.array(all_vecs, dtype=np.float32)
     # L2-normalize so dot product = cosine similarity
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
@@ -70,19 +67,47 @@ def embed(texts: list[str], use_cache: bool = True) -> np.ndarray:
 
 
 def cosine_topk(
-    query: str, chunks: list[str], k: int = 5
+    query: str, chunks: list[str], k: int = 5, use_reranker: bool = True
 ) -> list[tuple[int, float]]:
-    """Return [(chunk_index, cosine_similarity)] for the top-k chunks."""
+    """Return [(chunk_index, relevance_score)] for the top-k chunks.
+    If use_reranker is True, gets top 20 by cosine, then reranks with Voyage.
+    """
     if not chunks:
         return []
-    # Query embedding — small, no cache needed
+    
+    # 1. First pass retrieval (vector search)
     q = _embed_raw([query])[0]
-    # Chunk embeddings — cached, only computed once per document
     M = embed(chunks, use_cache=True)
-    sims = M @ q  # both sides are L2-normalized
-    k = min(k, len(chunks))
-    idx = np.argsort(-sims)[:k]
-    return [(int(i), float(sims[i])) for i in idx]
+    sims = M @ q
+    
+    # Get top candidates for reranking
+    num_candidates = min(20 if use_reranker else k, len(chunks))
+    idx = np.argsort(-sims)[:num_candidates]
+    
+    if not use_reranker or len(chunks) == 1:
+        # Just return cosine top k
+        k = min(k, len(chunks))
+        idx_k = np.argsort(-sims)[:k]
+        return [(int(i), float(sims[i])) for i in idx_k]
+    
+    # 2. Second pass (Reranker)
+    candidate_chunks = [chunks[i] for i in idx]
+    client = _get_client()
+    resp = client.rerank(
+        query=query,
+        documents=candidate_chunks,
+        model=VOYAGE_RERANK_MODEL,
+        top_k=min(k, len(candidate_chunks))
+    )
+    
+    # resp.results contains objects with .index and .relevance_score
+    # Map the candidate index back to the original chunk index
+    final_results = []
+    for r in resp.results:
+        original_idx = int(idx[r.index])
+        final_results.append((original_idx, float(r.relevance_score)))
+        
+    return final_results
 
 
 def cosine_sim(a: str, b: str) -> float:

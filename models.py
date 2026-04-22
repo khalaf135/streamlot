@@ -48,7 +48,7 @@ MISTRAL_OCR_MODEL = "mistral-ocr-latest"
 GEMINI_OCR_MODEL = os.getenv("GEMINI_OCR_MODEL", "gemini-2.5-pro")
 GEMINI_CHAT_MODEL = os.getenv("GEMINI_CHAT_MODEL", GEMINI_OCR_MODEL)
 MISTRAL_CHAT_MODEL = os.getenv("MISTRAL_CHAT_MODEL", "mistral-large-latest")
-NEBIUS_CHAT_MODEL = os.getenv("NEBIUS_CHAT_MODEL", "Qwen/Qwen3-235B-A22B-Instruct-2507")
+NEBIUS_CHAT_MODEL = os.getenv("NEBIUS_CHAT_MODEL", "Qwen/Qwen2.5-72B-Instruct")
 NEBIUS_VL_MODEL = os.getenv("NEBIUS_VL_MODEL", "Qwen/Qwen2.5-VL-72B-Instruct")
 NEBIUS_BASE_URL = "https://api.studio.nebius.ai/v1/"
 
@@ -62,7 +62,7 @@ OCR_MODELS = [
 ]
 
 QA_MODELS = [
-    "Nebius (Qwen3-235B)",
+    "Nebius (Qwen2.5-72B)",
     "Gemini (best)",
     "Mistral (mistral-large)",
 ]
@@ -422,7 +422,7 @@ _OCR_FUNCS = {
 }
 
 _QA_FUNCS = {
-    "Nebius (Qwen3-235B)": _answer_with_nebius,
+    "Nebius (Qwen2.5-72B)": _answer_with_nebius,
     "Gemini (best)": _answer_with_gemini,
     "Mistral (mistral-large)": _answer_with_mistral,
 }
