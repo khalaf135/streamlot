@@ -64,7 +64,9 @@ def run() -> None:
             ocr_text=text, ocr_model=ocr_model, ocr_file=uploaded.name
         )
         tokens_used = st.session_state["last_request_tokens"]["ocr"]
-        st.success(f"OCR completed in {duration:.1f}s! (Used {tokens_used:,} tokens)")
+        # Basic cost approx (Gemini 1.5 Pro ~ $1.25/1M, Qwen ~ $1.00/1M)
+        cost = (tokens_used / 1_000_000) * 1.25
+        st.success(f"OCR completed in {duration:.1f}s! (Used {tokens_used:,} tokens, Cost: ~${cost:.4f})")
 
     if "ocr_text" not in st.session_state:
         st.info("Upload a PDF and click **Run OCR** to begin.")
@@ -91,6 +93,25 @@ def run() -> None:
     st.caption(f"Indexed **{len(chunks)}** chunks for retrieval.")
 
     st.divider()
+    st.subheader("Embedding")
+    if st.button("Embed Document"):
+        st.session_state["last_request_tokens"] = {"ocr": 0, "embed": 0, "qa": 0}
+        from rag import ensure_embedded
+        import time
+        start_t = time.time()
+        with st.spinner("Embedding document chunks..."):
+            doc_hash = ensure_embedded(chunks, st.session_state['ocr_file'])
+        from models import get_and_reset_sleep
+        duration = (time.time() - start_t) - get_and_reset_sleep()
+        embed_tok = st.session_state["last_request_tokens"]["embed"]
+        # Voyage-law-2 approx $0.12 per 1M tokens
+        cost = (embed_tok / 1_000_000) * 0.12
+        if embed_tok > 0:
+            st.success(f"Embedded {len(chunks)} chunks in {duration:.1f}s! (Used {embed_tok:,} tokens, Cost: ~${cost:.4f})")
+        else:
+            st.info(f"Chunks already embedded in {duration:.1f}s! (Cost: $0.0000)")
+
+    st.divider()
     st.subheader("Ask a question")
     question = st.text_input("Your question (Arabic or English)")
     if question and st.button("Get answer"):
@@ -114,7 +135,17 @@ def run() -> None:
         st.success(answer)
         qa_tok = st.session_state["last_request_tokens"]["qa"]
         embed_tok = st.session_state["last_request_tokens"]["embed"]
-        st.caption(f"**Tokens used for this request:** QA = {qa_tok:,} | Embed/Rerank = {embed_tok:,}  ·  **Time:** {duration:.1f}s")
+        
+        qa_cost = 0.0
+        if "gemini" in qa_model.lower(): qa_cost = (qa_tok / 1_000_000) * 1.25
+        elif "mistral" in qa_model.lower(): qa_cost = (qa_tok / 1_000_000) * 2.0
+        elif "llama" in qa_model.lower() or "nebius" in qa_model.lower(): qa_cost = (qa_tok / 1_000_000) * 0.20
+        else: qa_cost = (qa_tok / 1_000_000) * 1.0
+        
+        embed_cost = (embed_tok / 1_000_000) * 0.30 # Mostly reranking ($0.30/1M)
+        total_cost = qa_cost + embed_cost
+        
+        st.caption(f"**Tokens:** QA = {qa_tok:,} | Embed/Rerank = {embed_tok:,}  ·  **Time:** {duration:.1f}s  ·  **Cost:** ~${total_cost:.4f}")
 
     st.divider()
     st.subheader("Evaluation — 22 standard MOA questions")
