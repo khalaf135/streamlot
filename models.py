@@ -63,6 +63,7 @@ def _get_db_connection():
                     embedding VECTOR(1024)
                 );
             """)
+            cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS filename TEXT;")
             cur.execute("CREATE INDEX IF NOT EXISTS doc_chunks_hash_idx ON document_chunks (document_hash);")
             
             cur.execute("""

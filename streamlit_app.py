@@ -75,7 +75,7 @@ def run() -> None:
     st.subheader("Ask a question")
     question = st.text_input("Your question (Arabic or English)")
     if question and st.button("Get answer"):
-        top = cosine_topk(question, chunks, k=top_k)
+        top = cosine_topk(question, chunks, filename=st.session_state['ocr_file'], k=top_k)
         with st.expander("Retrieved chunks"):
             for rank, (idx, sim) in enumerate(top, 1):
                 st.markdown(f"**#{rank} · chunk {idx} · sim={sim:.3f}**")
@@ -101,7 +101,7 @@ def run() -> None:
         rows = []
         progress = st.progress(0.0, text="Evaluating...")
         for i, q in enumerate(EVAL_QUESTIONS):
-            top = cosine_topk(q["question"], chunks, k=top_k)
+            top = cosine_topk(q["question"], chunks, filename=st.session_state['ocr_file'], k=top_k)
             context = _build_context(chunks, top)
             try:
                 answer = get_answer(qa_model, context, q["question"])

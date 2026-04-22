@@ -76,7 +76,7 @@ def _doc_hash(texts: list[str]) -> str:
         h.update(t.encode("utf-8"))
     return h.hexdigest()
 
-def ensure_embedded(texts: list[str]) -> str:
+def ensure_embedded(texts: list[str], filename: str) -> str:
     """Ensure texts are embedded and saved to DB. Returns document hash."""
     if not texts:
         return ""
@@ -97,9 +97,9 @@ def ensure_embedded(texts: list[str]) -> str:
     with conn.cursor() as cur:
         for i, (text, vec) in enumerate(zip(texts, vecs)):
             cur.execute("""
-                INSERT INTO document_chunks (document_hash, chunk_index, chunk_text, embedding)
-                VALUES (%s, %s, %s, %s)
-            """, (doc_hash, i, text, vec.tolist()))
+                INSERT INTO document_chunks (document_hash, chunk_index, chunk_text, embedding, filename)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (doc_hash, i, text, vec.tolist(), filename))
     conn.commit()
     conn.close()
     
@@ -107,7 +107,7 @@ def ensure_embedded(texts: list[str]) -> str:
 
 
 def cosine_topk(
-    query: str, chunks: list[str], k: int = 5, use_reranker: bool = True
+    query: str, chunks: list[str], filename: str, k: int = 5, use_reranker: bool = True
 ) -> list[tuple[int, float]]:
     """Return [(chunk_index, relevance_score)] for the top-k chunks.
     If use_reranker is True, gets top 20 from PostgreSQL via vector search, then reranks with Voyage.
@@ -116,7 +116,7 @@ def cosine_topk(
         return []
         
     # Ensure all chunks are embedded and mapped to a document_hash in the DB
-    doc_hash = ensure_embedded(chunks)
+    doc_hash = ensure_embedded(chunks, filename)
     
     # 1. First pass retrieval (PostgreSQL vector search)
     q_vec = _embed_raw([query])[0]
